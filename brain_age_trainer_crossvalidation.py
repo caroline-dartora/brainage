@@ -7,10 +7,10 @@
 #-----------------------------------------
 
      Brain AGE v2 - cross-validation
-               
+
 #-----------------------------------------
 
-Age prediction of brain images with convolutional neural networks. 
+Age prediction of brain images with convolutional neural networks.
 
 ---
 Before using this script, please be sure that you have preprocessed your images using the "brain_age_trainer_preprocessing.py" script with:
@@ -31,7 +31,7 @@ This script briefly:
         3.5 A .csv file is created with the average of precited age from the ensemble models for training and development sets
 
 
-The brainAGE-v2 aggregates the K-folds development. 
+The brainAGE-v2 aggregates the K-folds development.
 Also, the CV model is in a stratified-fashion, and the input table need to describe in the column 'Project', to which project the images are.
 
 The input .csv file needs to contain, at least, the follow columns:
@@ -41,12 +41,12 @@ The input .csv file needs to contain, at least, the follow columns:
     'path_registered': the path for the registered image.
     'age_at_scan': the chronological age of the subject in the image acquisition time.
     'partition': a column that need to be fullfilled with the word 'main'. This column will be used to identify in each partition (train or test) the data will be used in each KFold.
-    
+
 
 """
 import os
 import datetime
-import numpy as np 
+import numpy as np
 from utils.dataloader import mri_dset
 from transforms.load_transform import load_transforms
 import pandas as pd
@@ -63,6 +63,8 @@ from sklearn.model_selection import KFold, StratifiedGroupKFold, StratifiedKFold
 from sklearn.metrics import mean_squared_error, mean_absolute_error
 import monai
 from monai.data import DataLoader, ThreadDataLoader
+from utils.misc import EarlyStopping
+
 def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
@@ -75,19 +77,22 @@ parser = argparse.ArgumentParser(description='Training of model for brain age pr
 parser.add_argument('--input-csv', default='../brain_age/data/your_data.csv', help='Path to csv file with paths to img files and labels (chronological age)')
 parser.add_argument('--output-dir', default='/path/to/brain_age/output_dir', help='Path to directory where output folder is created.')
 parser.add_argument('--evaluate-test-set', dest='evaluate_test_set', action='store_false',help='not necessary because is the cross-validation model')
-parser.add_argument('--lr', '--learning-rate', default=0.002, type=float,metavar='LR', help='initial learning rate') 
+parser.add_argument('--lr', '--learning-rate', default=0.002, type=float,metavar='LR', help='initial learning rate')
 parser.add_argument('-bs', '--batch-size', default=20, type=int,metavar='N', help='mini-batch size (default: 20)')
 parser.add_argument('-epochs', default=20, type=int,metavar='N', help='mini-batch size (default: 20)')
 parser.add_argument('-kfolds', '--kfolds', default=10, type=int,metavar='N', help='Number of KFolds cross-validation to be used (default: 10)')
 parser.add_argument('--comment', default='test_public_script', help='Add comment to training session for outputdir')
 parser.add_argument('--print-frequency', default=10, type=int, metavar='N',help='num batches to process before printing prediction error')
+parser.add_argument('--curriculum-pace', default=0.2, type=float, help='How quickly to increase difficulty (default: 0.2)')
+parser.add_argument('--patience', default=5, type=int, help='Number of epochs to wait before early stopping (default: 5)')
+parser.add_argument('--min-delta', default=0.01, type=float, help='Minimum change in MAE to qualify as an improvement (default: 0.01)')
 parser.set_defaults(evaluate_test_set=False)
 args = parser.parse_args()
 
 print('Settings: KFolds = ', args.kfolds)
 print('N of epochs = ', args.epochs)
 print('Learning Rate = ', args.lr)
-print('Batch size = ', args.batch_size) 
+print('Batch size = ', args.batch_size)
 
 cfg = {
         'img_dim':[160,192,160],
@@ -129,10 +134,13 @@ for train_index, dev_index in kf.split(df, df_['Project'], df_['uid']):
     df_dev['partition'].replace({'main':'dev'}, inplace = True)
     df_dev['partition'].replace({'train':'dev'}, inplace = True)
     df = pd.concat([df_train, df_dev], ignore_index = True)
+
+    # Initialize curriculum learning for this fold
+    sample_difficulty = utils.misc.SampleDifficulty(df[df['partition'] == 'train'])
+
     distribution = pd.DataFrame({'CV':cv,'Number of samples':df.pivot_table(columns = ['Project'], aggfunc = 'size'), 'Distribution on test set':df_dev['Project'].value_counts(),
                                  'Distribution related to the whole dataset':df_dev['Project'].value_counts()/df_dev['Project'].count()})
     dist= pd.concat([dist,distribution], axis=0)
-
 
     print('Train size', df_train.shape)
     print('Dev size', df_dev.shape)
@@ -140,31 +148,32 @@ for train_index, dev_index in kf.split(df, df_['Project'], df_['uid']):
     writer = SummaryWriter(results_dir,comment='')
     writer.add_text('comment',args.comment)
     print('Output directory created in %s' % results_dir)
-    
+
     #Verify existence or create a output just for data splits and predictions
     splits_folder = (os.path.join(results_dir, 'splits'))
     CHECK_FOLDER = os.path.isdir(splits_folder)
     if not CHECK_FOLDER:
         os.makedirs(splits_folder)
-    
+
     predictions_folder = (os.path.join(results_dir, 'predictions'))
     CHECK_FOLDER = os.path.isdir(predictions_folder)
     if not CHECK_FOLDER:
         os.makedirs(predictions_folder)
-        
+
     #Save splits
     fname = os.path.join(splits_folder, 'data_split_'+str(cv)+'.csv')
     df.to_csv(fname)
-    
+
     #Save data distribution in the folds
     fname = os.path.join(results_dir, 'data_distribution_folds.csv')
     dist.to_csv(fname)
-    
+
     # datasets for training and development sets
     dset_training=mri_dset(df,
                            partition='train',
                            is_training=True,
                            input_transform=transforms_train,
+                           sample_weights=sample_difficulty.get_weights()
                            )
 
     dset_dev=mri_dset(df,
@@ -174,8 +183,8 @@ for train_index, dev_index in kf.split(df, df_['Project'], df_['uid']):
                            )
 
     loader_training = monai.data.ThreadDataLoader(
-            dset_training, batch_size=args.batch_size, 
-            shuffle=True,
+            dset_training, batch_size=args.batch_size,
+            sampler=dset_training.get_weighted_sampler(),
             num_workers=10,
             pin_memory=True,
             drop_last=True
@@ -183,7 +192,7 @@ for train_index, dev_index in kf.split(df, df_['Project'], df_['uid']):
 
 
     loader_dev = monai.data.ThreadDataLoader(
-            dset_dev, batch_size=args.batch_size, 
+            dset_dev, batch_size=args.batch_size,
             shuffle=False,
             num_workers=10,
             pin_memory=True,
@@ -202,11 +211,11 @@ for train_index, dev_index in kf.split(df, df_['Project'], df_['uid']):
         plt.imshow(img_tmp[:,ix,:])
         plt.subplot(1,3,3)
         plt.imshow(img_tmp[:,:,ix]);plt.colorbar()
-        plt.show(block=False) 
+        plt.show(block=False)
         print([img_tmp.min(),img_tmp.mean(),img_tmp.max()])
         plt.pause(3) #Shows and close the image after 3 seconds
         plt.close()
-    
+
 
 # %% Initialize models and optimizers
 
@@ -232,8 +241,27 @@ for train_index, dev_index in kf.split(df, df_['Project'], df_['uid']):
 
         schedulers[key] = torch.optim.lr_scheduler.StepLR(optimizers[key], step_size=5, gamma=0.1)
 
+    # Initialize early stopping for each model at start of each fold
+    early_stoppers = {key: EarlyStopping(patience=args.patience, min_delta=args.min_delta, mode='min')
+                     for key in models.keys()}
+
     # %%
     for epoch in range(args.epochs):
+        # Update curriculum learning for this epoch
+        sample_difficulty.update_epoch(epoch)
+        if epoch > 0:  # After first epoch, use prediction errors to determine difficulty
+            sample_difficulty.update_difficulty(method='prediction_error')
+
+        # Update dataset weights
+        dset_training.sample_weights = sample_difficulty.get_weights(args.curriculum_pace)
+        loader_training = monai.data.ThreadDataLoader(
+            dset_training, batch_size=args.batch_size,
+            sampler=dset_training.get_weighted_sampler(),
+            num_workers=10,
+            pin_memory=True,
+            drop_last=True
+        )
+
         phases = ['train','dev']
 
         ratings = {}
@@ -241,7 +269,7 @@ for train_index, dev_index in kf.split(df, df_['Project'], df_['uid']):
             ratings[phase] = {}
             for key in models.keys():
                 ratings[phase][key] = utils.misc.StoreOutput()
-                
+
         print('--- starting training epoch ' + str(epoch) + ' ---')
         phase='train'
         start=time.time()
@@ -272,11 +300,11 @@ for train_index, dev_index in kf.split(df, df_['Project'], df_['uid']):
                 age=age.type(torch.FloatTensor).to(cfg['device'])
 
                 for key in models.keys():
-                    models[key].eval()           
+                    models[key].eval()
                     tmp_pred,_ = models[key](img.detach().to(cfg['device']))
                     ratings[phase][key].update(tmp_pred.squeeze_(1),age,uid,guid)
         print(datetime.datetime.now())
-        print('finished epoch %d' % epoch) 
+        print('finished epoch %d' % epoch)
 
         # %% Compute epoch statistics and add to tensorboard summary writer
 
@@ -308,7 +336,7 @@ for train_index, dev_index in kf.split(df, df_['Project'], df_['uid']):
 
             maes[phase + '_ensemble'] = mean_absolute_error(df_tmp['age_at_scan'], df_tmp['predicted_age'])
             fname = os.path.join(results_dir,'maes'+phase+str(cv)+'.csv')
-            
+
             # calculate ensemble predictions
             df_tmp['predicted_age'] = np.mean(predictions,axis=0)
             fname = os.path.join(results_dir,'predictions_'+phase+'_ensemble_cv_'+str(cv)+'.csv')
@@ -332,7 +360,7 @@ for train_index, dev_index in kf.split(df, df_['Project'], df_['uid']):
                 plt.close()
                 fname = os.path.join(predictions_folder,'predictions_'+phase+'_ensemble.csv')
 
-        #add MAE to tensorboard    
+        #add MAE to tensorboard
         writer.add_scalars('mae',maes,epoch)
         maes_list=maes.items()
         maes_list=pd.DataFrame(maes_list)
@@ -352,7 +380,43 @@ for train_index, dev_index in kf.split(df, df_['Project'], df_['uid']):
             torch.save(models[key].to('cpu').state_dict(), fname)
             models[key].to(cfg['device'])
             plt.show()
-            
+
+        # Update sample difficulties based on predictions after training phase
+        predictions = []
+        for key in models.keys():
+            df_tmp = ratings['train'][key].get_df()
+            predictions.append(df_tmp['predicted_age'].to_numpy())
+        mean_predictions = np.mean(predictions, axis=0)
+        sample_difficulty.update_predictions(df_tmp['uid'].values, mean_predictions)
+
+        # Save curriculum learning statistics
+        curriculum_stats = pd.DataFrame({
+            'epoch': [epoch],
+            'cv': [cv],
+            'mean_difficulty': [sample_difficulty.df['difficulty'].mean()],
+            'max_difficulty': [sample_difficulty.df['difficulty'].max()],
+            'min_difficulty': [sample_difficulty.df['difficulty'].min()],
+            'mean_weight': [sample_difficulty.df['weight'].mean()]
+        })
+        curriculum_stats.to_csv(os.path.join(results_dir, f'curriculum_stats_cv_{cv}.csv'),
+                              mode='a',
+                              header=not os.path.exists(os.path.join(results_dir, f'curriculum_stats_cv_{cv}.csv')),
+                              index=False)
+
+        # Check early stopping criteria after dev set evaluation
+        phase = 'dev'
+        should_stop = []
+        for key in models.keys():
+            mae = ratings[phase][key].mae()
+            should_stop.append(early_stoppers[key](mae, epoch, models[key].state_dict()))
+
+        # If all models signal to stop, end this fold's training
+        if all(should_stop):
+            print(f'Early stopping triggered for fold {cv} at epoch {epoch}')
+            # Load best weights for each model
+            for key in models.keys():
+                models[key].load_state_dict(early_stoppers[key].load_best_state())
+            break
 
 # open all csv files with the ensemble predictions in each CV for both phases and all CVphases = ['dev', 'train']
 phases = ['dev', 'train']
@@ -385,6 +449,6 @@ for phase in phases:
     plt.ylabel('Predicted age',fontsize=16)
     writer.add_figure('predictions_ensemble_mean/'+phase+'_'+key,fig,epoch,cv)
     plt.close()
-    
+
     fname = os.path.join(results_dir, 'predictions_'+phase+'_final_result.csv')
     bio_age.to_csv(fname)

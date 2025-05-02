@@ -4,9 +4,9 @@
 
 Age prediction of brain images convolutional neural networks. The script briefly:
     1. Takes a single unprocessed T1-weighted native MRI image in .nii.gz or .nii format.
-    2. Uses FSL Flirt for a rigid registration (AC-PC alignment) and interpolation 
+    2. Uses FSL Flirt for a rigid registration (AC-PC alignment) and interpolation
     to 1x1x1mm3 voxel size.
-    3. An ensemble of convolutional neural networks  predicts the age of the indivual, 
+    3. An ensemble of convolutional neural networks  predicts the age of the indivual,
     4. A .csv file 'uid'.csv is created with the average predicted age from the ensemble models.
 
 The model was trained on more than 15000 images from the following cohorts: UK biobank, ADNI, AIBL and GENIC.
@@ -20,7 +20,7 @@ python3 brain_age.py  --input-file /path/to/img.nii.gz --uid output_file_name_pr
 import pandas as pd
 import torch
 import argparse
-import os 
+import os
 import numpy as np
 
 from collections import OrderedDict
@@ -38,7 +38,7 @@ parser.add_argument('--input-file', default='/path/to/your/input/nifti/registere
 parser.add_argument('--output-dir', default='/path/to/brain_age/output_dir', help='Path to directory where all output files. Directory will be created if it doesn\'t exist')
 parser.add_argument('--uid', default='', type=str,help='Chosen unique id for output files that will located at output-dir/{uid_mni_dof_6.nii,uid.csv,uid_coronal.jpg}')
 parser.add_argument('--no-new-registration', dest='registration', action='store_false',help='If a previous AC/PC-alignment exists (file output_folder/uid_mni_dof_6.nii) then setting this flag will use previous registration. If there is no previous transform, the transform will be performed anyway.')
-parser.set_defaults(registration=True) 
+parser.set_defaults(registration=True)
 args = parser.parse_args()
 
 print('---- Started age prediction ----')
@@ -49,7 +49,7 @@ print('Force new registration: %s ' % str(args.registration))
 
 args.device =  torch.device('cpu')
 timestamp= '{:%Y-%m-%d_%H_%M_%S}'.format(datetime.datetime.now())
-fname= os.path.join(args.output_dir,args.uid + '_info.log') 
+fname= os.path.join(args.output_dir,args.uid + '_info.log')
 
 # Check that input parameters are OK
 assert os.path.exists(args.input_file), 'input-file not specified or does not exist'
@@ -106,7 +106,7 @@ for i,key in enumerate(models.keys()):
         models[key].eval()
         tmp,_ = models[key](img)
         predicted_ages[i] = tmp.detach().numpy()
-        
+
 print('---- Ages predicted from each individual model ---')
 print(predicted_ages)
 print('--'*20)

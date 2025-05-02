@@ -10,7 +10,7 @@ The methods used in the release v1.0 in this repository is described in:
 The network architecture is a 3D version of ResNet [He et al. (2017)](https://arxiv.org/abs/1512.03385).
 
 
-**Please note that the model has not been extensively validated across different protocols, scanners or populations and should be used for research purposes only.** 
+**Please note that the model has not been extensively validated across different protocols, scanners or populations and should be used for research purposes only.**
 ## Table of  contents
 
 * [Getting Started](#getting-started)
@@ -28,7 +28,7 @@ The network architecture is a 3D version of ResNet [He et al. (2017)](https://ar
 
 ## Getting Started
 
-These instructions show you code prerequisites needed to run the the script and how to install them. Please note that to use this tool you need a unix-based OS (i.e. Linux or macOS) or running a Linux Virtual machine. 
+These instructions show you code prerequisites needed to run the the script and how to install them. Please note that to use this tool you need a unix-based OS (i.e. Linux or macOS) or running a Linux Virtual machine.
 
 ### Prerequisites
 
@@ -53,10 +53,10 @@ See below for installation instructions.
 
 **Download brain_age python scripts**
 - Open a terminal and cd to the folder where you wish to install the tool and clone repository:
-``` 
-cd /path/to/your/installation/folder 
+```
+cd /path/to/your/installation/folder
 git clone https://github.com/westman-neuroimaging-group/brainage-prediction-mri.git
-``` 
+```
 
 or press "Clone or Download" in the top right corner and unzip the repository in your folder of choice.
 
@@ -66,7 +66,7 @@ or press "Clone or Download" in the top right corner and unzip the repository in
 We suggest that you install all python libraries in a conda environment, see instructions [here](https://conda.io/projects/conda/en/latest/user-guide/install/index.html?#). This is not necessary in order to use the model, however.
 
 - Install required python libraries (except for PyTorch) by executing the following (inside the brain_age_prediction_public folder):
-``` 
+```
 pip install -r requirements.txt
 ```
 - Install the latest PyTorch version (at time of writing: 1.7.1) by following the instructions [here](https://pytorch.org/). If you want to train your own model you need to download the CUDA version of PyTorch (and have a GPU + CUDA installed).
@@ -83,7 +83,7 @@ python brain_age.py --input-file /path/to/image_folder/input_filename.nii.gz --m
 
 This command would input the image `input_filename.nii.gz`, load the pretrained weights located in `/path/to/model_weights_folder/*.pth` and produce the files:
 
-- `new_output_filename_prefix.csv`: csv file with the predicted brain age. 
+- `new_output_filename_prefix.csv`: csv file with the predicted brain age.
 - `new_output_filename_prefix_mni_dof_6.nii`: MNI registered .nii of `input_filename.nii.gz`.
 - `new_output_filename_prefix_mni_dof_6.mat`: Computed transformation matrix for the registration of FSL. Since the FLS registration is the most time consuming step of `brain_age.py`, saving the intermediate processing step can save time if you want to re-run `brain_age.py` with e.g. new trained weights in future.
 
@@ -104,18 +104,18 @@ If you want to train your own model you need to have a GPU and a GPU version of 
 
 - Prepare a csv file `your_csv_file.csv` that includes full paths to the images (`path`), the chronological age at the time of the scan (`age_at_scan`), a unique ID of each image (`uid`), a unique index for each image (`indx`), to which project/cohort they belong (`Project`), and if the image belongs to train, dev or test set (for hold-out approach) or to the main partition (for cross-validation approach) (`partition`). See `sample_file_for_preprocessing_script.csv` for an example. Please note that these six columns are needed for the training script to work.
 - Run the script `brain_age_trainer_preprocessing.py` with the following flags (may take several hours depending on sample size):
-``` 
+```
 python brain_age_trainer_preprocessing.py --input-csv your_csv_file.csv --output-csv your_new_csv_file.csv --output-dir /path/to/folder/to/plave/registered/images
 ```
-- The output file `your_new_csv_file.csv` contains the same info as `your_csv_file.csv` but with an added column `path_registered` containing paths to the FSL-registered files in the chosen `output-dir`. 
+- The output file `your_new_csv_file.csv` contains the same info as `your_csv_file.csv` but with an added column `path_registered` containing paths to the FSL-registered files in the chosen `output-dir`.
 - To start training the model using the **hold-out** approach, run the following:
-``` 
+```
 python brain_age_trainer-holdout.py --input-csv your_new_csv_file.csv --output-dir /path/to/output/folder
 ```
 - The path specified in `output-dir` is where a timestamped folder will be created containing the trained weights of the model(s), predictions on the training and development sets (add flag `--evaluate-test-set` if you want to evaluate your test set in the end of the script), and tensorboard files monitoring the training process. (See https://pytorch.org/docs/stable/tensorboard.html for help on tensorboard.)
 
 - To start training the model using the **cross-validation** approach, run the following:
-``` 
+```
 python brain_age_trainer-crossvalidation.py --input-csv your_new_csv_file.csv --output-dir /path/to/output/folder
 ```
 - The path specified in `output-dir` is where a timestamped folder will be created containing the trained weights of the model(s), predictions, a file with the data distribution within different cohorts, and tensorboard files monitoring the training process. (See https://pytorch.org/docs/stable/tensorboard.html for help on tensorboard.)

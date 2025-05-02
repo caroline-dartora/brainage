@@ -10,7 +10,7 @@ from model.modules import ResidualNet3D
 
 class ResNet3D(nn.Module):
     '''
-    
+
     Args:
         input_dims = [h,w,c] - list or tuple containing dimensions of each input slice
     '''
@@ -22,7 +22,7 @@ class ResNet3D(nn.Module):
         self.l = self.get_flat_fts(input_dims, self.features)
         a=self.l
         N= 512 # number of neurons in fully connected layer
-        
+
         self.fc1 = nn.Sequential(
             nn.Linear(a,N),
             nn.ReLU(inplace=True),

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Script for preprocessing data with FSL prior to training. This step is done within 
+Script for preprocessing data with FSL prior to training. This step is done within
 the script brain_age.py but is too time consuming to do on-the-fly during training.
 
 This script uses FSL to do a rigid registration (6 DOF) to the MNI brain, so FSL FLIRT needs to be installed (see README).
@@ -31,7 +31,7 @@ if not os.path.exists(args.output_dir):
 if not args.output_csv:
     args.output_csv = args.input_csv.replace('.csv','_with_registration_paths.csv')
     print('output-csv not specified, setting it to %s' % args.output_csv)
-    
+
 df = pd.read_csv(args.input_csv)
 
 

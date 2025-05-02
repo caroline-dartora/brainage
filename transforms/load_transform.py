@@ -12,7 +12,7 @@ def load_transforms(args,random_chance=1):
         s=0
     else:
         s=1
-    
+
     transforms=tfs.ComposeMRI([
             tfs.LoadNifti(),
             tfs.RandomScaling(scale_range=[.95,1.05]),#.95,1.05

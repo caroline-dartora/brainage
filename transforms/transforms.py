@@ -15,12 +15,12 @@ import math
 
 
 class LoadNifti(object):
-    
+
     def __call__(self,file):
     # Load mri feils with same orientation and numpy format
         #print('---')
         #print(file)
-        
+
         a = nibabel.load(file) # load file
         a= nibabel.as_closest_canonical(a) # transform into RAS orientation
         pixdim = a.header.get('pixdim')[1:4]
@@ -36,9 +36,9 @@ class CropShift(object):
         self.shift =np.array(shift)
     def __call__(self,image):
         ndims = len(image['data'].shape)
-        
+
         T = np.identity(ndims+1)
-        
+
         T[0:ndims,-1]=self.shift
 
         image['crop_shift']=T
@@ -58,10 +58,10 @@ class Gamma(object):
             image['data']-=img_min
             image['data']/=(np.abs(img_max - img_min) + 1e-8)
             gamma=(np.random.rand())*(self.gamma_range[1] - self.gamma_range[0]) + self.gamma_range[0]
-            
+
             image['data']=np.power(image['data'],gamma)
             image['data'] = image['data']*(img_max - img_min) + img_min
-            
+
         return image
 
 
@@ -74,11 +74,11 @@ class RandomShift(object):
         self.max_shift =np.array(max_shift)
     def __call__(self,image):
         ndims = len(image['data'].shape)
-        
+
         shift = np.random.rand(ndims)*self.max_shift
-        
+
         T = np.identity(ndims+1)
-        
+
         T[0:ndims,-1]=shift
 
         image['random_shift']=T
@@ -88,17 +88,17 @@ class RandomShift(object):
 class RandomScaling(object):
     def __init__(self,scale_range=[1,1]):
         self.scale_range=scale_range
-        
+
     def __call__(self,image):
         old_res = np.array(image['pixdim'])
-        
+
         scale_factor = np.random.rand()*np.diff(self.scale_range)+self.scale_range[0]
         scale_factor = np.ones(len(old_res))*scale_factor
-        
+
         S = np.ones(old_res.size+1)
         S[0:len(scale_factor)] = scale_factor
         S = np.diag(S)
-        
+
         image['random_scale']=S
         image['affine'].append('random_scale')
         return image
@@ -136,7 +136,7 @@ class TranslateToCom(object):
 
         com = self.f*np.array(ndimage.center_of_mass(img_tmp))
 #        com = self.f*np.array(ndimage.center_of_mass(image['data'][::self.f,::self.f,::self.f]))
-        
+
         mid = np.array(image['data'].shape)/2
         T = np.identity(len(mid)+1)
         T[0:len(mid),-1] = mid-com
@@ -198,9 +198,9 @@ class RandomRotation(object):
             #u = np.array([1,1,1])
         else:
             u=self.rotation_axis
-        u = u/(np.dot(u,u))            
+        u = u/(np.dot(u,u))
         R = self.rotation_matrix(-angle,u)
-        
+
         image['rotation']=R
         image['affine'].append('rotation')
         return image
@@ -223,13 +223,13 @@ class ApplyAffine(object):
                 new_dim = image['data'].shape
             else:
                 new_dim = self.new_dim
-            
+
             ndims = len(image['pixdim'])
             T=np.identity(ndims+1)
             for a in image['affine']:
                 T = np.dot(image[a],T)
             T_inv = np.linalg.inv(T)
-            
+
             # compute offset for centering translation
             c_in = np.array(image['data'].shape)*.5
             c_out=np.array(new_dim)*.5
@@ -270,12 +270,12 @@ class ToTensor(object):
 
 #     def __call__(self, input, center_voxels):
 #         for t in self.transforms:
-            
+
 #             try:
 #                 input= t(input,center_voxels)
 #             except:
 #                 input= t(input)
-    
+
         return input
 class SwapAxes(object):
     """Switch axes so that convolution is applied in axial plane
@@ -288,7 +288,7 @@ class SwapAxes(object):
        self.axis1 =axis1
        self.axis2 =axis2
     def __call__(self, image):
-        
+
         return np.swapaxes(image,self.axis1,self.axis2)
 
 
@@ -305,7 +305,7 @@ class ReduceSlices(object):
         self.f_h = factor_hw
         self.f_w = factor_hw
         self.f_d = factor_d
-        
+
     def __call__(self, image):
         # h, w, d = image.shape[:3]
         image = image[0::self.f_h,0::self.f_w,0::self.f_d]
@@ -322,7 +322,7 @@ class Threshold(object):
     """
 
     def __init__(self, lower_limit, upper_limit):
-        
+
         self.ll = lower_limit
         self.ul = upper_limit
     def __call__(self, image):
@@ -335,15 +335,15 @@ class RandomNoise(object):
     """Add random normally distributed noise to image tensor.
 
     Args:
-        noise_var (float): maximum variance of added noise 
+        noise_var (float): maximum variance of added noise
         p (float): probability of adding noise
     """
 
     def __init__(self, noise_var=.1, p=.5):
-        
+
         self.noise_var = noise_var
         self.p = p
-        
+
     def __call__(self, image):
         if torch.rand(1)[0]<self.p:
             var = torch.rand(1)[0]*self.noise_var
@@ -351,7 +351,7 @@ class RandomNoise(object):
             plt.title('before noise')
             plt.colorbar()
             plt.show()
-            
+
             plt.imshow(torch.randn(image.shape)[5,:,:]*var)
             plt.colorbar()
             plt.title('before noise')
@@ -370,7 +370,7 @@ class Crop(object):
         self.dims=dims
         self.offset = offset
         self.rand_offset = rand_offset
-    def __call__(self, image):    
+    def __call__(self, image):
         dims_org = image.shape[:3]
         center = np.array([d/2 for d in dims_org]) # center coordinates
         if not (self.rand_offset is None or self.rand_offset==0):
@@ -392,13 +392,13 @@ class Crop(object):
 #     """
 
 #     def __init__(self, output_x, output_y, output_z):
-        
+
 #         self.output_x = output_x
 #         self.output_y = output_y
 #         self.output_z = output_z
 #     def __call__(self, image):
 #         #image, landmarks = sample['image'], sample['landmarks']
-        
+
 #         x, y, z = image.shape[:3]
 #         new_x, new_y, new_z = self.output_x, self.output_y, self.output_z
 
@@ -422,17 +422,17 @@ class Crop(object):
 #         # numpy image: H x W x C
 #         # torch image: C X H X W
 #         if randbol:#randbol:
-        
+
 #             image = np.flip(image,self.axis).copy()
-        
-#         return image    
-        
+
+#         return image
+
 class PerImageNormalization(object):
     """ Transforms all pixel values to to have total mean= 0 and std = 1"""
 
     def __call__(self, image):
-        # transform data to 
-        
+        # transform data to
+
         image -=image.mean()
         image /=image.std()
 
@@ -443,15 +443,15 @@ class Window(object):
         self.low=low
         self.high=high
     def __call__(self, image):
-        # transform data to 
-        
+        # transform data to
+
         image[image<self.low] =self.low
         image[image>self.high] =self.high
 
         return image
-    
+
 class PrcCap(object):
-    """ Cap all pixel values to prc 5,95 
+    """ Cap all pixel values to prc 5,95
     low: lower cap
     high: upper percentile value to cap high pixel values to.
     """
@@ -459,8 +459,8 @@ class PrcCap(object):
         self.low = low
         self.high= high
     def __call__(self, image):
-        # transform data to 
-        
+        # transform data to
+
         l= np.percentile(image,self.low)
         h= np.percentile(image,self.high)
         image[image<l] = l; image[image>h] = h
@@ -470,8 +470,8 @@ class UnitInterval(object):
     """ Transforms all pixel values to be in [0,1]"""
 
     def __call__(self, image):
-        # transform data to 
-        
+        # transform data to
+
         image -=image.min()
         image /=image.max()
         image = (image-.5)*2
@@ -479,9 +479,9 @@ class UnitInterval(object):
 
 
 class ComposeMRI(object):
-    """ Composes transforms. Same as built-in by PyTorch but possible to 
+    """ Composes transforms. Same as built-in by PyTorch but possible to
     customize if needed.
-    
+
     """
 
     def __init__(self, transforms):
@@ -490,6 +490,5 @@ class ComposeMRI(object):
     def __call__(self, input):
         for t in self.transforms:
             #print(t)
-            input= t(input)   
+            input= t(input)
         return input
-
