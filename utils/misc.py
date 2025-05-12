@@ -86,7 +86,7 @@ class SampleDifficulty:
         # Calculate raw weights (higher for easier samples)
         raw_weights = 1.0 - np.clip(self.df['difficulty'] - difficulty_threshold, 0, 1)
         # Ensure strictly positive weights
- 
+
     def update_epoch(self, new_epoch):
         self.epoch = new_epoch
 

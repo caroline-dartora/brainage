@@ -64,14 +64,14 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error
 import monai
 from monai.data import DataLoader, ThreadDataLoader
 from utils.misc import EarlyStopping
+import logging
+from utils.logger import setup_logging
 
 def count_parameters(model):
+    """Count the number of trainable parameters in a model"""
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-
-
-# %% variables
-
+# Setup argument parser
 parser = argparse.ArgumentParser(description='Training of model for brain age predictions from T1-weighted nifti images')
 
 parser.add_argument('--input-csv', default='../brain_age/data/your_data.csv', help='Path to csv file with paths to img files and labels (chronological age)')
@@ -86,13 +86,25 @@ parser.add_argument('--print-frequency', default=10, type=int, metavar='N',help=
 parser.add_argument('--curriculum-pace', default=0.2, type=float, help='How quickly to increase difficulty (default: 0.2)')
 parser.add_argument('--patience', default=5, type=int, help='Number of epochs to wait before early stopping (default: 5)')
 parser.add_argument('--min-delta', default=0.01, type=float, help='Minimum change in MAE to qualify as an improvement (default: 0.01)')
+parser.add_argument('--enable-tensorboard', action='store_true', help='Enable TensorBoard logging')
 parser.set_defaults(evaluate_test_set=False)
 args = parser.parse_args()
 
-print('Settings: KFolds = ', args.kfolds)
-print('N of epochs = ', args.epochs)
-print('Learning Rate = ', args.lr)
-print('Batch size = ', args.batch_size)
+# Setup logging first
+from utils.logger import get_timestamp
+time_str = get_timestamp()
+results_dir = os.path.join(args.output_dir, time_str + '_' + args.comment.replace(' ','_').replace(',','_').replace('[','').replace(']','').replace('__','_'))
+os.makedirs(results_dir, exist_ok=True)
+
+# Initialize logger
+logger = setup_logging(results_dir, args.enable_tensorboard)
+
+# Log initial configuration
+logger.info("Starting brain age prediction training")
+logger.info(f"Settings: KFolds = {args.kfolds}")
+logger.info(f"N of epochs = {args.epochs}")
+logger.info(f"Learning Rate = {args.lr}")
+logger.info(f"Batch size = {args.batch_size}")
 
 cfg = {
         'img_dim':[160,192,160],
@@ -100,16 +112,13 @@ cfg = {
         }
 
 # %%
-t = time.localtime()
-time_str = '%2d%02d%02d_%02d.%02d.%02d' % (t.tm_year,t.tm_mon,t.tm_mday,t.tm_hour,t.tm_min,t.tm_sec)
-
-print('fixing rand seed')
+logger.info('Setting random seeds for reproducibility')
 np.random.seed(0)
 torch.random.manual_seed(0)
 
 # %% Create datasets and data loaders
-print('Creating dataset from %s' % args.input_csv)
-print('Images in column path_registered are assumed to have been registered ')
+logger.info(f'Creating dataset from {args.input_csv}')
+logger.debug('Images in column path_registered are assumed to have been registered')
 df_ = pd.read_csv(args.input_csv,usecols=['indx', 'Project','uid', 'guid','path_registered','age_at_scan','partition'])
 
 # transforms
@@ -125,8 +134,8 @@ df = df_
 for train_index, dev_index in kf.split(df, df_['Project'], df_['uid']):
     df_train, df_dev = df_.loc[train_index,:], df_.loc[dev_index,:]
     cv = cv+1
-    print('#######################################   FOLD ', str(cv),'  ##################################################')
-    print('Index of development set: ', dev_index)
+    logger.info(f'Starting fold {cv}')
+    logger.debug(f'Development set indices: {dev_index}')
     df_train = pd.DataFrame(df_train, columns = df.columns)
     df_dev = pd.DataFrame(df_dev, columns = df.columns)
     df_train['partition'].replace({'main':'train'}, inplace = True)
@@ -144,21 +153,22 @@ for train_index, dev_index in kf.split(df, df_['Project'], df_['uid']):
 
     print('Train size', df_train.shape)
     print('Dev size', df_dev.shape)
-    results_dir=os.path.join(args.output_dir,time_str + '_'+args.comment.replace(' ','_').replace(',','_').replace('[','').replace(']','').replace('__','_'))
-    writer = SummaryWriter(results_dir,comment='')
-    writer.add_text('comment',args.comment)
-    print('Output directory created in %s' % results_dir)
+    writer = None
+    if args.enable_tensorboard:
+        writer = SummaryWriter(results_dir,comment='')
+        writer.add_text('comment',args.comment)
+        logger.debug(f'TensorBoard writer initialized in {results_dir}')
+    else:
+        logger.info('TensorBoard logging disabled')
 
-    #Verify existence or create a output just for data splits and predictions
-    splits_folder = (os.path.join(results_dir, 'splits'))
-    CHECK_FOLDER = os.path.isdir(splits_folder)
-    if not CHECK_FOLDER:
-        os.makedirs(splits_folder)
+    # Create output directories
+    splits_folder = os.path.join(results_dir, 'splits')
+    predictions_folder = os.path.join(results_dir, 'predictions')
 
-    predictions_folder = (os.path.join(results_dir, 'predictions'))
-    CHECK_FOLDER = os.path.isdir(predictions_folder)
-    if not CHECK_FOLDER:
-        os.makedirs(predictions_folder)
+    for folder in [splits_folder, predictions_folder]:
+        if not os.path.isdir(folder):
+            os.makedirs(folder)
+            logger.debug(f'Created directory: {folder}')
 
     #Save splits
     fname = os.path.join(splits_folder, 'data_split_'+str(cv)+'.csv')
@@ -212,8 +222,9 @@ for train_index, dev_index in kf.split(df, df_['Project'], df_['uid']):
         plt.subplot(1,3,3)
         plt.imshow(img_tmp[:,:,ix]);plt.colorbar()
         plt.show(block=False)
-        print([img_tmp.min(),img_tmp.mean(),img_tmp.max()])
-        plt.pause(3) #Shows and close the image after 3 seconds
+        logger.debug(f'Image stats - Min: {img_tmp.min():.3f}, Mean: {img_tmp.mean():.3f}, Max: {img_tmp.max():.3f}')
+        if args.enable_tensorboard:
+            plt.pause(3) #Shows and close the image after 3 seconds
         plt.close()
 
 
@@ -233,7 +244,7 @@ for train_index, dev_index in kf.split(df, df_['Project'], df_['uid']):
     schedulers= {}
     for key in models.keys():
         #Dividing models to run in different GPUs
-        print([key,count_parameters(models[key])])
+        logger.info(f'Model {key} parameters: {count_parameters(models[key])}')
         models[key] = models[key].to(cfg['device'])
         models[key]= torch.nn.DataParallel(models[key], device_ids=range(torch.cuda.device_count()))
 
@@ -270,7 +281,7 @@ for train_index, dev_index in kf.split(df, df_['Project'], df_['uid']):
             for key in models.keys():
                 ratings[phase][key] = utils.misc.StoreOutput()
 
-        print('--- starting training epoch ' + str(epoch) + ' ---')
+        logger.info(f'Starting training epoch {epoch}')
         phase='train'
         start=time.time()
         for i,(img,age,uid,guid) in enumerate(loader_training):
@@ -289,7 +300,7 @@ for train_index, dev_index in kf.split(df, df_['Project'], df_['uid']):
                 optimizers[key].step()
                 ratings[phase][key].update(tmp_pred.squeeze(),age,uid,guid)
                 if i%args.print_frequency==0:
-                    print([epoch,i,len(loader_training),key,loss.detach().to('cpu')])
+                    logger.info(f'Epoch [{epoch}/{args.epochs}] Batch [{i}/{len(loader_training)}] Model {key} Loss: {loss.detach().to("cpu"):0.4f}')
 
         # %%
         # -------------------------- evaulate dev set ----------------------
@@ -303,8 +314,7 @@ for train_index, dev_index in kf.split(df, df_['Project'], df_['uid']):
                     models[key].eval()
                     tmp_pred,_ = models[key](img.detach().to(cfg['device']))
                     ratings[phase][key].update(tmp_pred.squeeze_(1),age,uid,guid)
-        print(datetime.datetime.now())
-        print('finished epoch %d' % epoch)
+        logger.info(f'Finished epoch {epoch} at {datetime.now().strftime("%Y%m%d_%H%M%S")}')
 
         # %% Compute epoch statistics and add to tensorboard summary writer
 
@@ -375,11 +385,10 @@ for train_index, dev_index in kf.split(df, df_['Project'], df_['uid']):
         writer.add_scalars('lr',lrs,epoch)
         # %% save model weights
         for key in models.keys():
-            fname=results_dir+'/'+key+'_cv_'+str(cv)+'.pth'
-            print('saving weights in %s' % fname)
+            fname=os.path.join(results_dir, f'{key}_cv_{cv}.pth')
+            logger.info(f'Saving weights to {fname}')
             torch.save(models[key].to('cpu').state_dict(), fname)
             models[key].to(cfg['device'])
-            plt.show()
 
         # Update sample difficulties based on predictions after training phase
         predictions = []
@@ -412,16 +421,19 @@ for train_index, dev_index in kf.split(df, df_['Project'], df_['uid']):
 
         # If all models signal to stop, end this fold's training
         if all(should_stop):
-            print(f'Early stopping triggered for fold {cv} at epoch {epoch}')
+            logger.info(f'Early stopping triggered for fold {cv} at epoch {epoch}')
             # Load best weights for each model
             for key in models.keys():
                 models[key].load_state_dict(early_stoppers[key].load_best_state())
+                logger.debug(f'Loaded best weights for model {key}')
             break
 
-# open all csv files with the ensemble predictions in each CV for both phases and all CVphases = ['dev', 'train']
+# open all csv files with the ensemble predictions in each CV for both phases
+logger.info("Processing final ensemble predictions")
 phases = ['dev', 'train']
 
 for phase in phases:
+    logger.info(f"Processing {phase} phase ensemble predictions")
     all_files = glob.glob(os.path.join(results_dir, 'predictions_'+phase+'_ensemble*'))
     df_from_each_file = (pd.read_csv(f, sep=',') for f in all_files)
     df_merged = pd.concat(df_from_each_file, ignore_index=True).sort_values(by=['guid'], axis=0, ascending=True)
@@ -435,20 +447,25 @@ for phase in phases:
     bio_age['uid']=df_merged['uid']
 
     mae = mean_absolute_error(bio_age['age_at_scan'], bio_age['predicted_age_mean'])
-    correlation_ensemble = np.corrcoef(bio_age['predicted_age_mean'],bio_age['age_at_scan'])[0][1] # pearson correlation
-    lims = [bio_age['age_at_scan'].min()-3,bio_age['age_at_scan'].max()+3] # x and y lims for plotting
-    key = 'ensemble_'+phase
-    # generate scatterplots and add to tensorboard
-    fig = plt.figure(figsize=(12,8))
-    plt.scatter(bio_age['age_at_scan'],bio_age['predicted_age_mean'],alpha=1)
-    tstr= '%s - MAE: %.2f - rho: %.3f (%s)'% (phase,mae,correlation,key)
-    plt.title(tstr,fontsize=16)
-    plt.plot(lims,lims,'k:');plt.grid();
-    plt.xlim(lims);plt.ylim(lims);
-    plt.xlabel('Chronological age',fontsize=16)
-    plt.ylabel('Predicted age',fontsize=16)
-    writer.add_figure('predictions_ensemble_mean/'+phase+'_'+key,fig,epoch,cv)
-    plt.close()
+    correlation_ensemble = np.corrcoef(bio_age['predicted_age_mean'],bio_age['age_at_scan'])[0][1]
+    logger.info(f"{phase} phase final results - MAE: {mae:.3f}, Correlation: {correlation_ensemble:.3f}")
 
-    fname = os.path.join(results_dir, 'predictions_'+phase+'_final_result.csv')
+    # Generate final plots for TensorBoard if enabled
+    if args.enable_tensorboard:
+        lims = [bio_age['age_at_scan'].min()-3,bio_age['age_at_scan'].max()+3]
+        key = 'ensemble_'+phase
+        fig = plt.figure(figsize=(12,8))
+        plt.scatter(bio_age['age_at_scan'],bio_age['predicted_age_mean'],alpha=1)
+        tstr= f'{phase} - MAE: {mae:.2f} - rho: {correlation_ensemble:.3f} ({key})'
+        plt.title(tstr,fontsize=16)
+        plt.plot(lims,lims,'k:');plt.grid();
+        plt.xlim(lims);plt.ylim(lims);
+        plt.xlabel('Chronological age',fontsize=16)
+        plt.ylabel('Predicted age',fontsize=16)
+        writer.add_figure(f'predictions_ensemble_mean/{phase}_{key}',fig,epoch,cv)
+        plt.close()
+
+    # Save final results
+    fname = os.path.join(results_dir, f'predictions_{phase}_final_result.csv')
     bio_age.to_csv(fname)
+    logger.debug(f"Saved final results to {fname}")
