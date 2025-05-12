@@ -79,15 +79,27 @@ class SampleDifficulty:
         """Get sample weights based on current epoch and difficulty"""
         # Gradually include harder samples as training progresses
         difficulty_threshold = min(1.0, self.epoch * curriculum_pace)
-        self.df['weight'] = 1.0 - (self.df['difficulty'] - difficulty_threshold).clip(0, 1)
-        return self.df['weight'].values
-
+        # Calculate raw weights (higher for easier samples)
+        raw_weights = 1.0 - np.clip(self.df['difficulty'] - difficulty_threshold, 0, 1)
+        # Ensure strictly positive weights
+        epsilon = 1e-6
+        # Calculate raw weights (higher for easier samples)
+        raw_weights = 1.0 - np.clip(self.df['difficulty'] - difficulty_threshold, 0, 1)
+        # Ensure strictly positive weights
+ 
     def update_epoch(self, new_epoch):
         self.epoch = new_epoch
 
     def update_predictions(self, uids, predictions):
         """Update difficulty based on new predictions"""
-        self.df.loc[self.df['uid'].isin(uids), 'predicted_age'] = predictions
+        # Get matching indices and ensure lengths match
+        matching_mask = self.df['uid'].isin(uids)
+        if sum(matching_mask) != len(predictions):
+            print(f"Warning: Number of predictions ({len(predictions)}) doesn't match number of matching UIDs ({sum(matching_mask)})")
+            # Only update the predictions we have
+            matching_indices = self.df.index[matching_mask][:len(predictions)]
+            self.df.loc[matching_indices, 'predicted_age'] = predictions
+
 
 
 class EarlyStopping:

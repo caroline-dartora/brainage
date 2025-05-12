@@ -39,9 +39,14 @@ class mri_dset(Dataset):
     def get_weighted_sampler(self):
         """Returns a WeightedRandomSampler if sample_weights are provided"""
         if self.sample_weights is not None:
+            # Ensure weights are positive and normalized
+            weights = np.maximum(self.sample_weights, 1e-6)
+            weights = weights / weights.sum()
+            weights = torch.as_tensor(weights, dtype=torch.float64)
             return torch.utils.data.WeightedRandomSampler(
-                self.sample_weights,
-                len(self.sample_weights),
+                weights,
+                len(weights),
                 replacement=True
             )
         return None
+
